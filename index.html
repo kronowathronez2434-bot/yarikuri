@@ -422,7 +422,10 @@ function plan(){
   const from=[add(t,-14),S.startDate].sort()[1];
   for(const it of S.items) for(const d of occ(it,from,last)) if(!done.has('I:'+it.id+':'+d)) items.push({it,d,overdue:d<t});
   const cards=[];
-  if(S.card.enabled) for(const c of cardPays(from,last)) if(!done.has('I:card:'+c.d)&&(c.amount>0||c.bill==null)) cards.push(Object.assign({},c,{overdue:c.d<t}));
+  // card bills are debt: always include the next unpaid payment, even if it falls after payday
+  const nextCard=S.card.enabled?cardPays(t,add(t,70)).find(c=>!done.has('I:card:'+c.d)):null;
+  const cardTo=nextCard&&nextCard.d>last?nextCard.d:last;
+  if(S.card.enabled) for(const c of cardPays(from,cardTo)) if(!done.has('I:card:'+c.d)&&(c.amount>0||c.bill==null)) cards.push(Object.assign({},c,{overdue:c.d<t}));
   const cardTotal=cards.reduce((a,c)=>a+c.amount,0);
   items.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:0);
   const buffer=Math.min(S.commute.buffer|0,schoolDays);
@@ -558,7 +561,7 @@ function homeHTML(){
         <div class="lg"><i class="sw c-lunch"></i><div class="t"><b>昼食</b><div>${p.lunch.length}回 × ${yen(S.lunch.price)}</div></div><span class="v num">${yen(p.lunchTotal)}</span></div>
         <div class="lg"><i class="sw c-rain"></i><div class="t"><b>悪天候の交通費</b><div>予定${p.rain.length}回${p.buffer?' ＋ 予備'+p.buffer+'回':''} × ${yen(S.commute.fare)}</div></div><span class="v num">${yen(p.commuteTotal)}</span></div>
         <details class="items-in"><summary class="lg"><i class="sw c-fixed"></i><div class="t"><b>定期の支出</b><div>${p.items.length}件${p.items.length?'・タップで一覧':''}</div></div><span class="v num">${yen(p.itemTotal)}</span></summary>${itemsList?`<div class="sublist">${itemsList}</div>`:''}</details>
-        ${S.card.enabled?`<details class="items-in"><summary class="lg"><i class="sw c-cc"></i><div class="t"><b>クレジットカード</b><div>${p.cards.length?p.cards.map(c=>md(c.d)).join('・')+'の引き落とし':'給料日までの引き落としなし'}${p.cards.some(c=>c.bill==null)?' <span class="pill danger">金額未入力</span>':''}</div></div><span class="v num">${yen(p.cardTotal)}</span></summary>${p.cards.length?`<div class="sublist">${p.cards.map(c=>`<div><span>${md(c.d)} 一括払いの分${c.bill==null?'（未入力）':''}${c.overdue?' <span class="pill danger">未処理</span>':''}</span><span class="num">${yen(c.bill||0)}</span></div>${c.inst.map(x=>`<div><span>　分割 ${esc(x.name)}</span><span class="num">${yen(x.amount)}</span></div>`).join('')}`).join('')}</div>`:''}</details>`:''}
+        ${S.card.enabled?`<details class="items-in"><summary class="lg"><i class="sw c-cc"></i><div class="t"><b>クレジットカード</b><div>${p.cards.length?p.cards.map(c=>md(c.d)).join('・')+'の引き落とし・払うまで差し引き':'給料日までの引き落としなし'}${p.cards.some(c=>c.bill==null)?' <span class="pill danger">金額未入力</span>':''}</div></div><span class="v num">${yen(p.cardTotal)}</span></summary>${p.cards.length?`<div class="sublist">${p.cards.map(c=>`<div><span>${md(c.d)} 一括払いの分${c.bill==null?'（未入力）':''}${c.overdue?' <span class="pill danger">未処理</span>':''}</span><span class="num">${yen(c.bill||0)}</span></div>${c.inst.map(x=>`<div><span>　分割 ${esc(x.name)}</span><span class="num">${yen(x.amount)}</span></div>`).join('')}`).join('')}</div>`:''}</details>`:''}
         <div class="lg total"><i class="sw ${p.free>=0?'c-free':'deficit'}" ${p.free<0?'style="background:var(--danger)"':''}></i><div class="t"><b>${p.free>=0?'自由に使えるお金':'不足'}</b><div>所持金 − 予定の支出</div></div><span class="v num" style="color:${p.free>=0?'var(--free)':'var(--danger)'}">${yen(p.free)}</span></div>
       </div>
     </section>`;
@@ -671,6 +674,7 @@ function cardHTML(p){
   if(!S.card.enabled) return `<section class="card"><h2>クレジットカード</h2><div class="small muted">先月使った分や分割払いの引き落としを、給料日までの予算から取り分けます。</div><button class="btn primary" data-act="cardOn">クレジットカードを追加</button></section>`;
   const next=cardPays(t,add(t,75)).slice(0,2);
   let h=`<section class="card"><h2>クレジットカード</h2>
+  <div class="small muted">次の引き落とし分は、給料日に関係なく、払うまで所持金から差し引いて計算します。</div>
   <div class="grid2"><div class="field"><label for="c_day">引き落とし日</label><select class="inp" id="c_day">${Array.from({length:31},(_,i)=>`<option value="${i+1}" ${S.card.day===i+1?'selected':''}>毎月${i+1===31?'末日':(i+1)+'日'}</option>`).join('')}</select></div>
   <div class="field"><label for="c_shift">土日祝のとき</label><select class="inp" id="c_shift"><option value="after" ${S.card.shift==='after'?'selected':''}>次の平日</option><option value="before" ${S.card.shift==='before'?'selected':''}>前の平日</option><option value="none" ${S.card.shift==='none'?'selected':''}>そのまま</option></select></div></div>`;
   for(const c of next){
