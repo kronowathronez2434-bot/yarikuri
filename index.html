@@ -21,6 +21,7 @@
   --lunch:#B86E06; --lunch-bg:#FBEBD3;
   --rain:#1D6AB0; --rain-bg:#DCEAF7;
   --fixed:#7444BB; --fixed-bg:#ECE2F8;
+  --cc:#B3306A; --cc-bg:#F9DFEA;
   --free:#16825A; --free-bg:#D8F0E4;
   --danger:#C2352B; --danger-bg:#FBE0DC;
   --sat:#1D6AB0; --sun:#C2352B;
@@ -33,14 +34,14 @@
   --bg:#0E1318; --surface:#161D25; --surface-2:#1C252F; --ink:#E6ECF1; --muted:#93A1AE; --line:#2A3540;
   --accent:#8297FF; --accent-ink:#0E1318; --accent-soft:#1F2A4D;
   --lunch:#F0A640; --lunch-bg:#3A2A10; --rain:#5DA9EE; --rain-bg:#14293D;
-  --fixed:#B38EF2; --fixed-bg:#2B1F3F; --free:#4CC892; --free-bg:#123021;
+  --fixed:#B38EF2; --fixed-bg:#2B1F3F; --cc:#F27AAB; --cc-bg:#3A1828; --free:#4CC892; --free-bg:#123021;
   --danger:#F2705F; --danger-bg:#3B1A16; --sat:#5DA9EE; --sun:#F2705F;
   --shadow:none; --hero-bg:#1F2A4D; --hero-ink:#E6ECF1; --hero-neg:#FF8A7A; color-scheme:dark;}}
 :root[data-theme="dark"]{
   --bg:#0E1318; --surface:#161D25; --surface-2:#1C252F; --ink:#E6ECF1; --muted:#93A1AE; --line:#2A3540;
   --accent:#8297FF; --accent-ink:#0E1318; --accent-soft:#1F2A4D;
   --lunch:#F0A640; --lunch-bg:#3A2A10; --rain:#5DA9EE; --rain-bg:#14293D;
-  --fixed:#B38EF2; --fixed-bg:#2B1F3F; --free:#4CC892; --free-bg:#123021;
+  --fixed:#B38EF2; --fixed-bg:#2B1F3F; --cc:#F27AAB; --cc-bg:#3A1828; --free:#4CC892; --free-bg:#123021;
   --danger:#F2705F; --danger-bg:#3B1A16; --sat:#5DA9EE; --sun:#F2705F;
   --shadow:none; --hero-bg:#1F2A4D; --hero-ink:#E6ECF1; --hero-neg:#FF8A7A; color-scheme:dark;}
 
@@ -101,7 +102,7 @@ details.items-in summary{list-style:none;cursor:pointer}
 details.items-in summary::-webkit-details-marker{display:none}
 .sublist{display:flex;flex-direction:column;gap:2px;padding:4px 0 6px 22px}
 .sublist div{display:flex;justify-content:space-between;gap:8px;font-size:13px;color:var(--muted)}
-.c-lunch{background:var(--lunch)} .c-rain{background:var(--rain)} .c-fixed{background:var(--fixed)} .c-free{background:var(--free)}
+.c-lunch{background:var(--lunch)} .c-rain{background:var(--rain)} .c-fixed{background:var(--fixed)} .c-free{background:var(--free)} .c-cc{background:var(--cc)}
 
 /* buttons */
 .btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:500;font-size:14px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
@@ -123,6 +124,7 @@ details.items-in summary::-webkit-details-marker{display:none}
 .pill.lunch{background:var(--lunch-bg);color:var(--lunch)}
 .pill.rain{background:var(--rain-bg);color:var(--rain)}
 .pill.fixed{background:var(--fixed-bg);color:var(--fixed)}
+.pill.cc{background:var(--cc-bg);color:var(--cc)}
 .pill.free{background:var(--free-bg);color:var(--free)}
 .pill.danger{background:var(--danger-bg);color:var(--danger)}
 .done-txt{color:var(--free);font-size:13px;font-weight:500}
@@ -280,6 +282,7 @@ function sampleState(){
     lunch:{price:550,days:[1,2,4],skipHolidays:true},
     commute:{fare:420,buffer:1},
     breaks:[],
+    card:{enabled:false,day:27,shift:'after'}, cardBills:{}, installments:[],
     items:[
       {id:'s1',name:'音楽サブスク',amount:980,rule:{type:'monthly',day:15}},
       {id:'s2',name:'スマホ代',amount:2970,rule:{type:'monthly',day:20}},
@@ -374,6 +377,31 @@ function perMonth(it){
   return 0;
 }
 
+/* ---------- credit card ---------- */
+const ym=(y,m)=>{while(m<0){m+=12;y--;}while(m>11){m-=12;y++;}return y+'-'+pad(m+1);};
+function bizShift(y,m,day,shift){
+  while(m<0){m+=12;y--;} while(m>11){m-=12;y++;}
+  let s=ds(new Date(y,m,Math.min(day,lastDay(y,m))));
+  const off=x=>{const w=dow(x);return w===0||w===6||!!holName(x);};
+  if(shift==='before') while(off(s)) s=add(s,-1);
+  else if(shift==='after') while(off(s)) s=add(s,1);
+  return s;
+}
+const cardDateFor=k=>{const a=k.split('-').map(Number);return bizShift(a[0],a[1]-1,S.card.day,S.card.shift);};
+function instMonths(x){const a=x.first.split('-').map(Number);return Array.from({length:Math.max(0,x.count|0)},(_,i)=>ym(a[0],a[1]-1+i));}
+const instFor=k=>S.installments.filter(x=>instMonths(x).includes(k));
+function cardPays(from,to){
+  const out=[];if(from>to)return out;const d=pd(from);
+  for(let i=-1;i<40;i++){
+    const y=d.getFullYear(),m=d.getMonth()+i;const s=bizShift(y,m,S.card.day,S.card.shift);
+    if(s>to)break; if(s<from)continue;
+    const k=ym(y,m);const bill=S.cardBills[k];const inst=instFor(k);
+    out.push({d:s,month:k,bill:bill==null?null:bill,inst,amount:(bill||0)+inst.reduce((a,x)=>a+x.amount,0)});
+  }
+  return out;
+}
+const instLeft=(x,t,done)=>instMonths(x).filter(k=>{const d=cardDateFor(k);return d>=t&&!done.has('I:card:'+d);}).length;
+
 const refsDone=()=>{const m=new Map();for(const l of S.log) if(l.ref) m.set(l.ref,l);return m;};
 
 function plan(){
@@ -393,17 +421,20 @@ function plan(){
   }
   const from=[add(t,-14),S.startDate].sort()[1];
   for(const it of S.items) for(const d of occ(it,from,last)) if(!done.has('I:'+it.id+':'+d)) items.push({it,d,overdue:d<t});
+  const cards=[];
+  if(S.card.enabled) for(const c of cardPays(from,last)) if(!done.has('I:card:'+c.d)&&(c.amount>0||c.bill==null)) cards.push(Object.assign({},c,{overdue:c.d<t}));
+  const cardTotal=cards.reduce((a,c)=>a+c.amount,0);
   items.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:0);
   const buffer=Math.min(S.commute.buffer|0,schoolDays);
   const lunchTotal=lunch.length*S.lunch.price;
   const commuteTotal=(rain.length+buffer)*S.commute.fare;
   const itemTotal=items.reduce((a,x)=>a+x.it.amount,0);
-  const needed=lunchTotal+commuteTotal+itemTotal;
+  const needed=lunchTotal+commuteTotal+itemTotal+cardTotal;
   const free=S.balance-needed;
   const spentToday=S.log.filter(l=>l.date===t&&l.kind==='other').reduce((a,l)=>a-l.delta,0);
   const perDay=Math.floor((free+spentToday)/budgetDays);
   const todayLeft=perDay-spentToday;
-  return {t,end,isPayday,last,daysLeft,budgetDays,lunch,rain,items,buffer,lunchTotal,commuteTotal,itemTotal,needed,free,spentToday,perDay,todayLeft,done};
+  return {t,end,isPayday,last,daysLeft,budgetDays,lunch,rain,items,cards,cardTotal,buffer,lunchTotal,commuteTotal,itemTotal,needed,free,spentToday,perDay,todayLeft,done};
 }
 
 /* ---------- persistence ---------- */
@@ -521,12 +552,13 @@ function homeHTML(){
     h+=`<section class="card" aria-label="所持金の内訳">
       <div class="row"><h2 class="grow">所持金の内訳</h2><span class="num" style="font-weight:700;font-size:18px">${yen(S.balance)}</span></div>
       <div class="bar" role="img" aria-label="内訳のグラフ">
-        <span class="c-lunch" style="width:${w(p.lunchTotal)}"></span><span class="c-rain" style="width:${w(p.commuteTotal)}"></span><span class="c-fixed" style="width:${w(p.itemTotal)}"></span>${p.free>=0?`<span class="c-free" style="width:${w(p.free)}"></span>`:`<span class="deficit" style="width:${w(-p.free)}"></span>`}
+        <span class="c-lunch" style="width:${w(p.lunchTotal)}"></span><span class="c-rain" style="width:${w(p.commuteTotal)}"></span><span class="c-fixed" style="width:${w(p.itemTotal)}"></span><span class="c-cc" style="width:${w(p.cardTotal)}"></span>${p.free>=0?`<span class="c-free" style="width:${w(p.free)}"></span>`:`<span class="deficit" style="width:${w(-p.free)}"></span>`}
       </div>
       <div class="legend">
         <div class="lg"><i class="sw c-lunch"></i><div class="t"><b>昼食</b><div>${p.lunch.length}回 × ${yen(S.lunch.price)}</div></div><span class="v num">${yen(p.lunchTotal)}</span></div>
         <div class="lg"><i class="sw c-rain"></i><div class="t"><b>悪天候の交通費</b><div>予定${p.rain.length}回${p.buffer?' ＋ 予備'+p.buffer+'回':''} × ${yen(S.commute.fare)}</div></div><span class="v num">${yen(p.commuteTotal)}</span></div>
         <details class="items-in"><summary class="lg"><i class="sw c-fixed"></i><div class="t"><b>定期の支出</b><div>${p.items.length}件${p.items.length?'・タップで一覧':''}</div></div><span class="v num">${yen(p.itemTotal)}</span></summary>${itemsList?`<div class="sublist">${itemsList}</div>`:''}</details>
+        ${S.card.enabled?`<details class="items-in"><summary class="lg"><i class="sw c-cc"></i><div class="t"><b>クレジットカード</b><div>${p.cards.length?p.cards.map(c=>md(c.d)).join('・')+'の引き落とし':'給料日までの引き落としなし'}${p.cards.some(c=>c.bill==null)?' <span class="pill danger">金額未入力</span>':''}</div></div><span class="v num">${yen(p.cardTotal)}</span></summary>${p.cards.length?`<div class="sublist">${p.cards.map(c=>`<div><span>${md(c.d)} 一括払いの分${c.bill==null?'（未入力）':''}${c.overdue?' <span class="pill danger">未処理</span>':''}</span><span class="num">${yen(c.bill||0)}</span></div>${c.inst.map(x=>`<div><span>　分割 ${esc(x.name)}</span><span class="num">${yen(x.amount)}</span></div>`).join('')}`).join('')}</div>`:''}</details>`:''}
         <div class="lg total"><i class="sw ${p.free>=0?'c-free':'deficit'}" ${p.free<0?'style="background:var(--danger)"':''}></i><div class="t"><b>${p.free>=0?'自由に使えるお金':'不足'}</b><div>所持金 − 予定の支出</div></div><span class="v num" style="color:${p.free>=0?'var(--free)':'var(--danger)'}">${yen(p.free)}</span></div>
       </div>
     </section>`;
@@ -560,12 +592,14 @@ function todayRows(p){
     const d=done.get(ref);
     const acts=d?`<span class="done-txt">${d.kind==='skip'?'なしにしました':'記録済み'}</span><button class="btn ghost small" data-act="undo" data-id="${d.id}">取消</button>`
       :`<button class="btn primary small" data-act="pay" data-ref="${ref}" data-label="${esc(name)}" data-amt="${amount}" data-kind="${kind}">払った ${yen(amount)}</button><button class="btn small" data-act="skip" data-ref="${ref}" data-label="${esc(name)}">${kind==='lunch'?'今日はいらない':'スキップ'}</button>`;
-    rows.push(`<div class="today-item"><div class="name"><span class="pill ${pill}">${pill==='lunch'?'昼食':pill==='rain'?'交通費':'定期'}</span> <b>${esc(name)}</b>${sub?`<div>${sub}</div>`:''}</div><div class="acts">${acts}</div></div>`);
+    rows.push(`<div class="today-item"><div class="name"><span class="pill ${pill}">${({lunch:'昼食',rain:'交通費',cc:'カード'})[pill]||'定期'}</span> <b>${esc(name)}</b>${sub?`<div>${sub}</div>`:''}</div><div class="acts">${acts}</div></div>`);
   };
   if(lunchNeeded(t)||done.has('L:'+t)) row('lunch','昼食','','L:'+t,S.lunch.price,'lunch');
   if(isRain(t)||done.has('C:'+t)) row('rain','悪天候の交通費','往復','C:'+t,S.commute.fare,'commute');
   const items=p.items.filter(x=>x.d<=t);
   for(const x of items) row('fixed',x.it.name,x.overdue?md(x.d)+'の分（未処理）':'今日の予定','I:'+x.it.id+':'+x.d,x.it.amount,'item');
+  for(const c of p.cards.filter(c=>c.d<=t)) row('cc','クレジットカード引き落とし',(c.overdue?md(c.d)+'の分（未処理）':'今日の引き落とし')+(c.bill==null?'・一括払いの金額が未入力です':''),'I:card:'+c.d,c.amount,'item');
+  if(S.card.enabled&&done.has('I:card:'+t)&&!p.cards.some(c=>c.d===t)) row('cc','クレジットカード引き落とし','今日の引き落とし','I:card:'+t,-done.get('I:card:'+t).delta,'item');
   // items already done today
   for(const it of S.items){const r='I:'+it.id+':'+t;if(done.has(r)&&!items.some(x=>x.it.id===it.id&&x.d===t)&&occ(it,t,t).length) row('fixed',it.name,'今日の予定',r,it.amount,'item');}
   let h=rows.join('');
@@ -580,7 +614,7 @@ function calHTML(){
   const endShow=add(p.end,21);const end=add(endShow,6-dow(endShow));
   let h=`<section class="card"><h2>給料日までのカレンダー</h2>
     <div class="small muted">日付をタップすると、悪天候で交通費がかかる日や、昼食がいらない日を変えられます。</div>
-    <div class="legend-inline"><span><i class="c-lunch"></i>昼食</span><span><i class="c-rain"></i>悪天候の交通費</span><span><i class="c-fixed"></i>定期の支出</span><span><i style="background:var(--free)"></i>給料日</span></div>
+    <div class="legend-inline"><span><i class="c-lunch"></i>昼食</span><span><i class="c-rain"></i>悪天候の交通費</span><span><i class="c-fixed"></i>定期の支出</span>${S.card.enabled?'<span><i class="c-cc"></i>カード</span>':''}<span><i style="background:var(--free)"></i>給料日</span></div>
     <div class="cal">${WD.map((w,i)=>`<div class="h ${i===0?'sun':i===6?'sat':''}">${w}</div>`).join('')}`;
   const pdSet=new Set(paydays(t,3));
   let curM=-1;
@@ -597,6 +631,7 @@ function calHTML(){
     if(lunchNeeded(d)) mk+=`<span class="mk c-lunch${done.has('L:'+d)?' done':''}"></span>`;
     if(isRain(d)) mk+=`<span class="mk c-rain${done.has('C:'+d)?' done':''}"></span>`;
     for(const it of S.items) if(occ(it,d,d).length) mk+=`<span class="mk c-fixed${done.has('I:'+it.id+':'+d)?' done':''}"></span>`;
+    if(S.card.enabled&&cardPays(d,d).length) mk+=`<span class="mk c-cc${done.has('I:card:'+d)?' done':''}"></span>`;
     h+=`<button class="${cls}" data-act="day" data-d="${d}" ${past?'disabled':''} aria-label="${mdj(d)}"><span class="n">${dt.getDate()}</span>${mk}${pdSet.has(d)?'<span class="tag">給</span>':''}</button>`;
   }
   h+=`</div></section>`;
@@ -607,6 +642,7 @@ function calHTML(){
     <div class="lg"><i class="sw c-lunch"></i><div class="t"><b>昼食 ${p.lunch.length}回</b><div>${p.lunch.slice(0,12).map(md).join('　')}${p.lunch.length>12?' ほか':''}</div></div><span class="v num">${yen(p.lunchTotal)}</span></div>
     <div class="lg"><i class="sw c-rain"></i><div class="t"><b>悪天候 ${p.rain.length}回${p.buffer?'＋予備'+p.buffer+'回':''}</b><div>${p.rain.length?p.rain.map(md).join('　'):'カレンダーで日付をタップして追加'}</div></div><span class="v num">${yen(p.commuteTotal)}</span></div>
     ${up.map(x=>`<div class="lg"><i class="sw c-fixed"></i><div class="t"><b>${esc(x.it.name)}</b><div>${md(x.d)}・${ruleText(x.it.rule)}</div></div><span class="v num">${yen(x.it.amount)}</span></div>`).join('')}
+    ${p.cards.filter(c=>c.d>=t).map(c=>`<div class="lg"><i class="sw c-cc"></i><div class="t"><b>クレジットカード</b><div>${md(c.d)}・一括 ${c.bill==null?'未入力':yen(c.bill)}${c.inst.length?'＋分割'+c.inst.length+'件':''}</div></div><span class="v num">${yen(c.amount)}</span></div>`).join('')}
     </div></section>`;
   return h;
 }
@@ -627,7 +663,50 @@ function itemsHTML(){
     h+='</div>';
   }else h+='<div class="empty-note">まだありません。「＋ 追加」から、毎月のサブスクや2週間ごとの買い物などを登録できます。</div>';
   h+='</section>';
+  return cardHTML(p)+h;
+}
+
+function cardHTML(p){
+  const t=p.t;
+  if(!S.card.enabled) return `<section class="card"><h2>クレジットカード</h2><div class="small muted">先月使った分や分割払いの引き落としを、給料日までの予算から取り分けます。</div><button class="btn primary" data-act="cardOn">クレジットカードを追加</button></section>`;
+  const next=cardPays(t,add(t,75)).slice(0,2);
+  let h=`<section class="card"><h2>クレジットカード</h2>
+  <div class="grid2"><div class="field"><label for="c_day">引き落とし日</label><select class="inp" id="c_day">${Array.from({length:31},(_,i)=>`<option value="${i+1}" ${S.card.day===i+1?'selected':''}>毎月${i+1===31?'末日':(i+1)+'日'}</option>`).join('')}</select></div>
+  <div class="field"><label for="c_shift">土日祝のとき</label><select class="inp" id="c_shift"><option value="after" ${S.card.shift==='after'?'selected':''}>次の平日</option><option value="before" ${S.card.shift==='before'?'selected':''}>前の平日</option><option value="none" ${S.card.shift==='none'?'selected':''}>そのまま</option></select></div></div>`;
+  for(const c of next){
+    const pm=(+c.month.slice(5)-1)||12;
+    const instSum=c.inst.reduce((a,x)=>a+x.amount,0);
+    const paid=p.done.get('I:card:'+c.d);
+    h+=`<div class="field" style="background:var(--surface-2);border-radius:12px;padding:12px"><label for="bill_${c.month}">${mdj(c.d)} の引き落とし（${pm}月に一括払いで使った分）</label>
+      <input class="inp yen" id="bill_${c.month}" data-bill="${c.month}" inputmode="numeric" autocomplete="off" value="${c.bill==null?'':c.bill}" placeholder="明細の金額（まだわからなければ空欄）" style="background:var(--surface)">
+      <div class="row small"><span class="grow muted">${instSum?'分割 '+yen(instSum)+' を足して':'分割なし'}${paid?'・<span class="done-txt">支払い済み</span>':''}</span><span>合計 <b class="num">${yen(c.amount)}</b></span></div></div>`;
+  }
+  h+=`<div class="row"><span class="flabel grow">分割払い</span><button class="btn small" data-act="newInst">＋ 分割を追加</button></div>`;
+  if(S.installments.length){
+    h+='<div>'+S.installments.map(x=>{
+      const left=instLeft(x,t,p.done);const ms=instMonths(x);const lm=ms[ms.length-1];
+      return `<button class="item" data-act="editInst" data-id="${x.id}"><span class="pill cc">${left?'残り'+left+'回':'完了'}</span><div class="grow"><b>${esc(x.name)}</b><div>${lm?lm.slice(0,4)+'年'+(+lm.slice(5))+'月まで・':''}全${x.count}回</div></div><div class="v num">${yen(x.amount)}<div>月々</div></div></button>`;
+    }).join('')+'</div>';
+  }else h+='<div class="empty-note">分割払いはありません。</div>';
+  h+=`<button class="btn ghost small" data-act="cardOff" style="align-self:flex-start">クレジットカードの管理をやめる</button></section>`;
   return h;
+}
+
+let draftInst=null;
+function instSheetHTML(){
+  const t=todayS();const isNew=!S.installments.some(x=>x.id===draftInst.id);
+  const base=cardPays(t,add(t,45))[0];
+  const b=base?base.month:ym(pd(t).getFullYear(),pd(t).getMonth());
+  const a=b.split('-').map(Number);const opts=[];
+  for(let i=-6;i<=12;i++){const k=ym(a[0],a[1]-1+i);opts.push(`<option value="${k}" ${draftInst.first===k?'selected':''}>${k.slice(0,4)}年${+k.slice(5)}月（${md(cardDateFor(k))}）</option>`);}
+  return `<h3>${isNew?'分割払いを追加':'分割払いを編集'}</h3>
+    <div class="field"><label for="n_name">名前</label><input class="inp" id="n_name" value="${esc(draftInst.name)}" placeholder="例 スマホ本体"></div>
+    <div class="grid2"><div class="field"><label for="n_amt">月々の額</label><input class="inp yen" id="n_amt" inputmode="numeric" value="${draftInst.amount||''}" placeholder="例 3200"></div>
+    <div class="field"><label for="n_count">回数</label><input class="inp yen" id="n_count" inputmode="numeric" value="${draftInst.count||''}" placeholder="例 12"></div></div>
+    <div class="field"><label for="n_first">この月の引き落としから数える</label><select class="inp" id="n_first">${opts.join('')}</select></div>
+    <div class="small muted">支払いの途中なら、次の引き落としの月を選んで「残りの回数」を入れてください。</div>
+    <div class="small" id="instMsg" role="status" style="color:var(--danger)"></div>
+    <div class="foot">${isNew?'<span></span>':'<button class="btn danger" data-act="delInst">削除</button>'}<div class="inline"><button class="btn" data-act="close">やめる</button><button class="btn primary" data-act="saveInst">保存</button></div></div>`;
 }
 
 function setHTML(){
@@ -790,6 +869,19 @@ document.addEventListener('click',e=>{
       const i=S.items.findIndex(x=>x.id===draft.id);if(i>=0)S.items[i]=clean;else S.items.push(clean);
       touched();sheetOpen=false;sheetRender=null;host.innerHTML='';commit();break;}
     case 'delItem':{if(!armed(el,'もう一度タップで削除'))return;S.items=S.items.filter(x=>x.id!==draft.id);sheetOpen=false;sheetRender=null;host.innerHTML='';commit();break;}
+    case 'cardOn':S.card.enabled=true;touched();commit();break;
+    case 'cardOff':if(!armed(el,'もう一度タップでやめる'))return;S.card.enabled=false;commit();break;
+    case 'newInst':{const t=todayS();const b=cardPays(t,add(t,45))[0];draftInst={id:uid(),name:'',amount:0,count:0,first:b?b.month:ym(pd(t).getFullYear(),pd(t).getMonth())};openSheet(instSheetHTML);break;}
+    case 'editInst':{const x=S.installments.find(i=>i.id===el.dataset.id);if(!x)return;draftInst=Object.assign({},x);openSheet(instSheetHTML);break;}
+    case 'saveInst':{
+      const g=id=>document.getElementById(id);const msg=g('instMsg');
+      draftInst.name=g('n_name').value.trim();draftInst.amount=toInt(g('n_amt').value);draftInst.count=toInt(g('n_count').value);draftInst.first=g('n_first').value;
+      if(!draftInst.name){msg.textContent='名前を入れてください。';return;}
+      if(!(draftInst.amount>0)){msg.textContent='月々の額を入れてください。';return;}
+      if(!(draftInst.count>0&&draftInst.count<=120)){msg.textContent='回数を1〜120で入れてください。';return;}
+      const i=S.installments.findIndex(x=>x.id===draftInst.id);if(i>=0)S.installments[i]=draftInst;else S.installments.push(draftInst);
+      touched();sheetOpen=false;sheetRender=null;host.innerHTML='';commit();break;}
+    case 'delInst':{if(!armed(el,'もう一度タップで削除'))return;S.installments=S.installments.filter(x=>x.id!==draftInst.id);sheetOpen=false;sheetRender=null;host.innerHTML='';commit();break;}
     case 'lunchDay':{const i=+el.dataset.i;S.lunch.days=S.lunch.days.includes(i)?S.lunch.days.filter(x=>x!==i):S.lunch.days.concat(i).sort();el.classList.toggle('on');el.setAttribute('aria-pressed',S.lunch.days.includes(i));touched();commit();break;}
     case 'addBreak':{
       const s=document.getElementById('b_start').value,en=document.getElementById('b_end').value,n=document.getElementById('b_name').value.trim();
@@ -821,6 +913,9 @@ document.addEventListener('change',e=>{
   if(el.id==='importFile'&&el.files&&el.files[0]){el.files[0].text().then(t=>{document.getElementById('importText').value=t;document.getElementById('dataMsg').textContent='ファイルを読み込みました。「読み込む」を押すと記録を戻します。';});return;}
   if(el.dataset&&el.dataset.act==='toggleLunch'){const d=el.dataset.d;const want=el.checked;setDay(d,{lunch:want===lunchDefault(d)?undefined:want});return;}
   if(el.dataset&&el.dataset.act==='toggleRain'){setDay(el.dataset.d,{rain:el.checked});return;}
+  if(el.dataset&&el.dataset.bill){const k=el.dataset.bill;if(el.value.trim()==='')delete S.cardBills[k];else S.cardBills[k]=Math.max(0,toInt(el.value));touched();commit();return;}
+  if(el.id==='c_day'){S.card.day=+el.value;commit();return;}
+  if(el.id==='c_shift'){S.card.shift=el.value;commit();return;}
   if(!el.closest('#setForm'))return;
   const v=el.value;
   switch(el.id){
