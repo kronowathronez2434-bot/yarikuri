@@ -1,7 +1,7 @@
 {
-  "name": "給料日までやりくり帳",
-  "short_name": "やりくり帳",
-  "description": "給料日までの昼食代・悪天候の交通費・定期の支出を差し引いて、1日に使える額を出すやりくり帳",
+  "name": "ZooTFinance",
+  "short_name": "ZooTFinance",
+  "description": "給料日までの昼食代・悪天候の交通費・定期の支出を差し引いて、1日に使える額を出す家計アプリ",
   "lang": "ja",
   "id": "./",
   "start_url": "./",

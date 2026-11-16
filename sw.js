@@ -1,6 +1,6 @@
-// やりくり帳 service worker: works offline, refreshes files in the background.
+// ZooTFinance service worker: works offline, refreshes files in the background.
 // When you change index.html, bump CACHE so phones pick up the new version.
-const CACHE = 'yarikuri-v1';
+const CACHE = 'yarikuri-v2';
 const CORE = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png'];
 
 self.addEventListener('install', e => {
