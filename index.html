@@ -282,7 +282,7 @@ function sampleState(){
     lunch:{price:550,days:[1,2,4],skipHolidays:true},
     commute:{fare:420,buffer:1},
     breaks:[],
-    card:{enabled:false,day:27,shift:'after'}, cardBills:{}, installments:[],
+    card:{enabled:false,day:27,shift:'after'}, cardBills:{}, installments:[], incomes:{},
     items:[
       {id:'s1',name:'音楽サブスク',amount:980,rule:{type:'monthly',day:15}},
       {id:'s2',name:'スマホ代',amount:2970,rule:{type:'monthly',day:20}},
@@ -440,6 +440,51 @@ function plan(){
   return {t,end,isPayday,last,daysLeft,budgetDays,lunch,rain,items,cards,cardTotal,buffer,lunchTotal,commuteTotal,itemTotal,needed,free,spentToday,perDay,todayLeft,done};
 }
 
+/* Outlook to the payday after next: balance + expected income, minus this period's plan,
+   next period's card repayment (spread per day) and next period's other planned costs. */
+function forecast(p){
+  const t=p.t,done=p.done;
+  const pay1=p.end;
+  const pay2=paydays(add(pay1,1),1)[0];
+  const last2=S.includePayday?pay2:add(pay2,-1);
+  const from2=add(p.last,1);
+  const inc=S.incomes[pay1];
+  const income=inc!=null?inc:(S.lastSalary||0);
+  let lunchN=0,rainN=0,school=0;
+  for(let d=from2;d<=last2;d=add(d,1)){const ln=lunchNeeded(d);if(ln)lunchN++;if(isRain(d))rainN++;if(ln&&!isRain(d))school++;}
+  const buffer2=Math.min(S.commute.buffer|0,school);
+  let items2=0;for(const it of S.items) for(const d of occ(it,from2,last2)) if(!done.has('I:'+it.id+':'+d)) items2+=it.amount;
+  const counted=new Set(p.cards.map(c=>c.d));
+  // card bills are debt: also take the first payment due after this window
+  const after2=S.card.enabled?cardPays(add(last2,1),add(last2,70))[0]:null;
+  const cardTo2=after2?after2.d:last2;
+  const cards2=S.card.enabled?cardPays(t,cardTo2).filter(c=>!counted.has(c.d)&&!done.has('I:card:'+c.d)):[];
+  const repay=cards2.reduce((a,c)=>a+c.amount,0);
+  const other2=lunchN*S.lunch.price+(rainN+buffer2)*S.commute.fare+items2;
+  const days=Math.max(1,diff(t,last2)+1);
+  const free=p.free+income-other2-repay;
+  const perDay=Math.floor((free+p.spentToday)/days);
+  return {pay1,pay2,last2,income,incomeSet:inc!=null,repay,cards2,repayPerDay:Math.ceil(repay/days),other2,lunchN,days,free,perDay,todayLeft:perDay-p.spentToday};
+}
+
+function forecastHTML(p){
+  const f=forecast(p);
+  const neg=f.perDay<0;
+  const cardSub=f.cards2.length?f.cards2.map(c=>md(c.d)+(c.bill==null?'（一括の金額未入力）':'')).join('・')+'・1日あたり '+yen(f.repayPerDay):(S.card.enabled?'この期間の引き落としなし':'カード未登録');
+  return `<section class="card" aria-label="来月の収入まで見た予算">
+    <div class="row"><h2 class="grow">来月の収入まで見ると</h2><span class="small muted">${md(f.last2)}まで ${f.days}日</span></div>
+    <div class="row" style="align-items:baseline"><span class="grow">1日に使える額</span><span class="num" style="font-size:30px;font-weight:700;color:${neg?'var(--danger)':'var(--ink)'}">${yen(f.perDay)}</span></div>
+    <div class="field"><label for="incomeAmt">${mdj(f.pay1)} の予定収入（給料＋ほかの収入）</label><input class="inp yen" id="incomeAmt" data-income="${f.pay1}" inputmode="numeric" autocomplete="off" value="${f.incomeSet?f.income:''}" placeholder="${S.lastSalary?'空欄なら いつもの '+yen(S.lastSalary)+' で計算':'例 60000'}"></div>
+    <div class="legend">
+      <div class="lg"><i class="sw c-free"></i><div class="t"><b>今の自由に使えるお金</b><div>所持金 − 給料日までの予定の支出</div></div><span class="v num">${yen(p.free)}</span></div>
+      <div class="lg"><i class="sw" style="background:var(--accent)"></i><div class="t"><b>＋ 予定収入</b><div>${mdj(f.pay1)}${f.incomeSet?'':'・いつもの給料の額'}</div></div><span class="v num">${yen(f.income)}</span></div>
+      <div class="lg"><i class="sw c-cc"></i><div class="t"><b>− 来月の返済（カード）</b><div>${cardSub}</div></div><span class="v num">${yen(f.repay)}</span></div>
+      <div class="lg"><i class="sw c-fixed"></i><div class="t"><b>− 来月のほかの予定支出</b><div>昼食${f.lunchN}回・交通費・定期の支出</div></div><span class="v num">${yen(f.other2)}</span></div>
+      <div class="lg total"><i class="sw ${f.free>=0?'c-free':''}" ${f.free<0?'style="background:var(--danger)"':''}></i><div class="t"><b>${f.free>=0?'残る自由なお金':'不足'}</b><div>${f.days}日で割って 1日 ${yen(f.perDay)}</div></div><span class="v num" style="color:${f.free>=0?'var(--free)':'var(--danger)'}">${yen(f.free)}</span></div>
+    </div>
+  </section>`;
+}
+
 /* ---------- persistence ---------- */
 let db=null,docRef=null,writing=false,dirty=false,saveTimer=null,cloudReady=false;
 function setSync(kind,text){
@@ -533,7 +578,7 @@ function homeHTML(){
   // salary banners
   const lp=lastPaydayBefore(t);
   const salaryDay=p.isPayday?t:(lp&&lp>(S.receivedFor||'')&&lp>=S.startDate&&diff(lp,t)<=7?lp:null);
-  if(salaryDay) h+=`<div class="banner pay"><div><b>${p.isPayday?'今日は給料日です。':md(salaryDay)+'の給料がまだ記録されていません。'}</b>受け取った額を入れると所持金に足して、次の給料日までの計算に切り替わります。</div><div class="acts"><input class="inp yen" id="salaryAmt" inputmode="numeric" style="max-width:160px" value="${S.lastSalary||''}" placeholder="金額" aria-label="給料の額"><button class="btn primary" data-act="salary" data-day="${salaryDay}">給料を記録</button></div></div>`;
+  if(salaryDay) h+=`<div class="banner pay"><div><b>${p.isPayday?'今日は給料日です。':md(salaryDay)+'の給料がまだ記録されていません。'}</b>受け取った額を入れると所持金に足して、次の給料日までの計算に切り替わります。</div><div class="acts"><input class="inp yen" id="salaryAmt" inputmode="numeric" style="max-width:160px" value="${(S.incomes[salaryDay]!=null?S.incomes[salaryDay]:S.lastSalary)||''}" placeholder="金額" aria-label="給料の額"><button class="btn primary" data-act="salary" data-day="${salaryDay}">給料を記録</button></div></div>`;
 
   if(p.isPayday){
     h+=`<div class="hero"><div class="lbl">所持金</div><div class="big num"><small>¥</small>${Math.round(S.balance).toLocaleString('ja-JP')}</div><div class="sub">給料を記録すると、次の給料日までの1日の予算を出します。</div></div>`;
@@ -546,6 +591,8 @@ function homeHTML(){
       <div class="ticket"><div class="days">${p.daysLeft}<span>日</span></div><div class="pd">給料日 ${mdj(p.end)} まで<br>${S.includePayday?'給料日当日の支出も含めて':'前日まで'} ${p.budgetDays}日分で計算</div></div>
     </div>`;
   }
+
+  if(!p.isPayday) h+=forecastHTML(p);
 
   // composition
   if(!p.isPayday){
@@ -918,6 +965,7 @@ document.addEventListener('change',e=>{
   if(el.dataset&&el.dataset.act==='toggleLunch'){const d=el.dataset.d;const want=el.checked;setDay(d,{lunch:want===lunchDefault(d)?undefined:want});return;}
   if(el.dataset&&el.dataset.act==='toggleRain'){setDay(el.dataset.d,{rain:el.checked});return;}
   if(el.dataset&&el.dataset.bill){const k=el.dataset.bill;if(el.value.trim()==='')delete S.cardBills[k];else S.cardBills[k]=Math.max(0,toInt(el.value));touched();commit();return;}
+  if(el.dataset&&el.dataset.income){const k=el.dataset.income;if(el.value.trim()==='')delete S.incomes[k];else S.incomes[k]=Math.max(0,toInt(el.value));touched();commit();return;}
   if(el.id==='c_day'){S.card.day=+el.value;commit();return;}
   if(el.id==='c_shift'){S.card.shift=el.value;commit();return;}
   if(!el.closest('#setForm'))return;
