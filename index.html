@@ -176,7 +176,10 @@ details.items-in summary::-webkit-details-marker{display:none}
 .day{border:1px solid transparent;background:var(--surface-2);border-radius:9px;min-height:62px;padding:3px 3px 4px;display:flex;flex-direction:column;align-items:stretch;gap:2px;text-align:left;font-size:12px;position:relative}
 .day .n{font-family:var(--f-num);font-weight:600;font-size:13px;line-height:1.2;padding-left:2px}
 .day.sun .n,.day.hol .n{color:var(--sun)} .day.sat .n{color:var(--sat)}
-.day.past{opacity:.38}
+.day.past .n,.day.past .mk{opacity:.4}
+.day:disabled{cursor:default}
+.day .bal{font-family:var(--f-num);font-size:10px;font-weight:600;line-height:1.1;margin-top:auto;padding-left:1px;white-space:nowrap;overflow:hidden}
+.bal.pos{color:var(--free)} .bal.neg{color:var(--danger)}
 .day.out{opacity:.55;background:transparent;border-color:var(--line)}
 .day.today{border-color:var(--ink)}
 .day.payday{background:var(--free-bg);border-color:var(--free)}
@@ -407,6 +410,19 @@ const instLeft=(x,t,done)=>instMonths(x).filter(k=>{const d=cardDateFor(k);retur
 
 const refsDone=()=>{const m=new Map();for(const l of S.log) if(l.ref) m.set(l.ref,l);return m;};
 
+/* daily budget history: each day's budget is saved while the app is used that day,
+   so the calendar can show how far over or under it you ended up. */
+function noteBudget(t,perDay){
+  if(!S.dayBudget) S.dayBudget={};
+  if(S.dayBudget[t]===perDay) return;
+  S.dayBudget[t]=perDay;
+  const cut=add(t,-120);for(const k of Object.keys(S.dayBudget)) if(k<cut) delete S.dayBudget[k];
+  try{localStorage.setItem(LS_KEY,JSON.stringify(S));}catch(e){}
+}
+const spentOn=d=>S.log.filter(l=>l.date===d&&l.kind==='other').reduce((a,l)=>a-l.delta,0);
+const dayResult=d=>{const b=S.dayBudget&&S.dayBudget[d];return b==null?null:b-spentOn(d);};
+const fmtPM=n=>{const a=Math.abs(n);const s=a>=10000?(a/10000).toFixed(a>=100000?0:1)+'万':a.toLocaleString('ja-JP');return (n>0?'+':n<0?'-':'±')+s;};
+
 function plan(){
   const t=todayS();
   const end=nextPayday(t);
@@ -440,6 +456,7 @@ function plan(){
   const spentToday=S.log.filter(l=>l.date===t&&l.kind==='other').reduce((a,l)=>a-l.delta,0);
   const perDay=Math.floor((free+spentToday)/budgetDays);
   const todayLeft=perDay-spentToday;
+  if(!isPayday) noteBudget(t,perDay);
   return {t,end,isPayday,last,daysLeft,budgetDays,lunch,rain,items,cards,cardTotal,buffer,lunchTotal,commuteTotal,itemTotal,needed,free,spentToday,perDay,todayLeft,done};
 }
 
@@ -663,10 +680,14 @@ function todayRows(p){
 
 function calHTML(){
   const p=plan();const t=p.t;const done=p.done;
-  const start=add(t,-dow(t));
+  // start from the week of the last payday (max 5 weeks back) so past days' results stay visible
+  const lp=lastPaydayBefore(t);const from0=lp&&diff(lp,t)<=35?lp:t;
+  const start=add(from0,-dow(from0));
   const endShow=add(p.end,21);const end=add(endShow,6-dow(endShow));
+  let sumRes=0,nRes=0;for(let d=start;d<=t;d=add(d,1)){const r=dayResult(d);if(r!=null){sumRes+=r;nRes++;}}
   let h=`<section class="card"><h2>給料日までのカレンダー</h2>
-    <div class="small muted">日付をタップすると、悪天候で交通費がかかる日や、昼食がいらない日を変えられます。</div>
+    <div class="small muted">日付をタップすると、悪天候で交通費がかかる日や、昼食がいらない日を変えられます。今日までの日には、日割りの予算に対して何円余ったか（＋）・使いすぎたか（−）を表示します。</div>
+    ${nRes?`<div class="row" style="background:var(--surface-2);border-radius:10px;padding:8px 12px"><span class="grow small">日割りの予算との差（${nRes}日分の合計）</span><b class="num ${sumRes>=0?'bal pos':'bal neg'}" style="font-size:18px">${fmtPM(sumRes)}円</b></div>`:''}
     <div class="legend-inline"><span><i class="c-lunch"></i>昼食</span><span><i class="c-rain"></i>悪天候の交通費</span><span><i class="c-fixed"></i>定期の支出</span>${S.card.enabled?'<span><i class="c-cc"></i>カード</span>':''}<span><i style="background:var(--free)"></i>給料日</span></div>
     <div class="cal">${WD.map((w,i)=>`<div class="h ${i===0?'sun':i===6?'sat':''}">${w}</div>`).join('')}`;
   const pdSet=new Set(paydays(t,3));
@@ -685,7 +706,9 @@ function calHTML(){
     if(isRain(d)) mk+=`<span class="mk c-rain${done.has('C:'+d)?' done':''}"></span>`;
     for(const it of S.items) if(occ(it,d,d).length) mk+=`<span class="mk c-fixed${done.has('I:'+it.id+':'+d)?' done':''}"></span>`;
     if(S.card.enabled&&cardPays(d,d).length) mk+=`<span class="mk c-cc${done.has('I:card:'+d)?' done':''}"></span>`;
-    h+=`<button class="${cls}" data-act="day" data-d="${d}" ${past?'disabled':''} aria-label="${mdj(d)}"><span class="n">${dt.getDate()}</span>${mk}${pdSet.has(d)?'<span class="tag">給</span>':''}</button>`;
+    const res=d<=t?dayResult(d):null;
+    const bal=res!=null?`<span class="bal ${res>=0?'pos':'neg'}">${fmtPM(res)}</span>`:'';
+    h+=`<button class="${cls}" data-act="day" data-d="${d}" ${past&&res==null?'disabled':''} aria-label="${mdj(d)}${res!=null?' 予算との差 '+fmtPM(res)+'円':''}"><span class="n">${dt.getDate()}</span>${mk}${bal}${pdSet.has(d)?'<span class="tag">給</span>':''}</button>`;
   }
   h+=`</div></section>`;
   // upcoming list
@@ -830,7 +853,16 @@ function daySheetHTML(d){
     return `<div class="row"><button class="btn primary small" data-act="pay" data-ref="${ref}" data-label="${esc(label)}" data-amt="${amt}" data-kind="${kind}">払った ${yen(amt)}</button></div>`;
   };
   const hn=holName(d);
-  return `<h3>${mdj(d)} ${hn?'<span class="pill danger">'+esc(hn)+'</span>':''}${inBreak(d)?' <span class="pill free">休み期間</span>':''}</h3>
+  const res=d<=t?dayResult(d):null;
+  const title=`<h3>${mdj(d)} ${hn?'<span class="pill danger">'+esc(hn)+'</span>':''}${inBreak(d)?' <span class="pill free">休み期間</span>':''}</h3>`;
+  let summary='';
+  if(res!=null){
+    const spentList=S.log.filter(l=>l.date===d&&l.kind==='other');
+    summary=`<div class="row" style="background:var(--surface-2);border-radius:10px;padding:10px 12px"><div class="grow small">日割りの予算 <b class="num">${yen(S.dayBudget[d])}</b><br>自由な出費 <b class="num">${yen(spentOn(d))}</b></div><b class="num bal ${res>=0?'pos':'neg'}" style="font-size:22px">${fmtPM(res)}円</b></div>
+      ${spentList.length?`<div class="sublist" style="padding-left:4px">${spentList.map(l=>`<div><span>${esc(l.label)}</span><span class="num">${yen(-l.delta)}</span></div>`).join('')}</div>`:'<div class="small muted">この日の自由な出費はありません。</div>'}`;
+  }
+  if(d<t) return `${title}${summary}<div class="foot"><span></span><button class="btn" data-act="close">閉じる</button></div>`;
+  return `${title}${summary}
     <label class="switch"><div class="t"><span class="pill lunch">昼食</span> 昼食代 ${yen(S.lunch.price)} がかかる<div>いつもの設定では${def?'かかる日':'かからない日'}${(o===true||o===false)?'（この日だけ変更中）':''}</div></div><input type="checkbox" data-act="toggleLunch" data-d="${d}" ${ln?'checked':''}></label>
     ${ln?payBtns('L:'+d,'昼食',S.lunch.price,'lunch'):''}
     ${(o===true||o===false)?`<button class="btn ghost small" data-act="resetLunch" data-d="${d}" style="align-self:flex-start">いつもの設定に戻す</button>`:''}
