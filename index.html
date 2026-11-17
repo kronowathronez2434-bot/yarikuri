@@ -279,7 +279,7 @@ function sampleState(){
     v:1, sample:true, startDate:t, savedAt:0,
     balance:32000,
     payday:{day:25,shift:'before'}, includePayday:false, receivedFor:null, lastSalary:60000,
-    lunch:{price:550,days:[1,2,4],skipHolidays:true},
+    lunch:{price:550,days:[1,2,3,5],skipHolidays:true},
     commute:{fare:420,buffer:1},
     breaks:[],
     card:{enabled:false,day:27,shift:'after'}, cardBills:{}, installments:[], incomes:{},
@@ -307,6 +307,9 @@ function normalize(s){
 }
 let S;
 try{S=normalize(JSON.parse(localStorage.getItem(LS_KEY)));}catch(e){S=sampleState();}
+// one-time switch (user request 2026-11-17): lunch on Mon, Tue, Wed, Fri, counted from today
+if(S.mig_lunch_done!==true){S.lunch.days=[1,2,3,5];S.mig_lunch_done=true;}
+try{localStorage.setItem(LS_KEY,JSON.stringify(S));}catch(e){}
 let tab='home';
 try{tab=localStorage.getItem('yarikuri.tab')||'home';}catch(e){}
 
